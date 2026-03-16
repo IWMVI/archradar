@@ -1,0 +1,7 @@
+src/
+bin/
+tsconfig.json
+*.map
+.npmignore
+definitions.md
+PLANO_IMPLEMENTACAO.md
