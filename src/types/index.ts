@@ -1,3 +1,5 @@
+export type ProjectType = 'javascript' | 'java-spring';
+
 export interface FileInfo {
   path: string;
   lines: number;
@@ -6,6 +8,7 @@ export interface FileInfo {
 
 export interface ScanResult {
   projectPath: string;
+  projectType: ProjectType;
   framework: FrameworkInfo;
   files: FileScanResult;
   dependencies: DependencyScanResult;
@@ -16,6 +19,12 @@ export interface FrameworkInfo {
   framework: string;
   version: string;
   bundler: string;
+}
+
+export interface JavaFrameworkInfo extends FrameworkInfo {
+  buildTool: 'maven' | 'gradle' | 'unknown';
+  springVersion: string;
+  javaVersion: string;
 }
 
 export interface FileScanResult {
@@ -91,4 +100,58 @@ export interface ScoreBreakdown {
   coupling: number;
   complexity: number;
   modularity: number;
+}
+
+export interface JavaDependencyInfo {
+  groupId: string;
+  artifactId: string;
+  version: string;
+  scope: string;
+  category: DependencyCategory;
+}
+
+export type DependencyCategory = 
+  | 'web'
+  | 'data'
+  | 'security'
+  | 'testing'
+  | 'devtools'
+  | 'cloud'
+  | 'observability'
+  | 'batch'
+  | 'other';
+
+export interface JavaComplexityResult {
+  avgComplexity: number;
+  hotspots: Array<{ file: string; className: string; method: string; complexity: number }>;
+}
+
+export interface JavaCouplingResult {
+  avgCoupling: number;
+  highCouplingFiles: Array<{ file: string; imports: number; type: string }>;
+}
+
+export interface JavaCircularDepsResult {
+  hasCycles: boolean;
+  cycles: Array<{ packagePath: string; files: string[] }>;
+}
+
+export interface JavaModularityResult {
+  modularityScore: number;
+  issues: string[];
+}
+
+export interface JavaAnalysisResult {
+  complexity: JavaComplexityResult;
+  coupling: JavaCouplingResult;
+  circularDeps: JavaCircularDepsResult;
+  modularity: JavaModularityResult;
+}
+
+export interface SpringLayerInfo {
+  controllers: string[];
+  services: string[];
+  repositories: string[];
+  models: string[];
+  configs: string[];
 }

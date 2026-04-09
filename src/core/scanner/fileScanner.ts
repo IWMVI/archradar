@@ -4,6 +4,7 @@ import path from 'path';
 import { FileScanResult, FileInfo } from '../../types/index.js';
 
 const CRITICAL_LINE_THRESHOLD = 300;
+const JAVA_CRITICAL_LINE_THRESHOLD = 500;
 
 export async function scanFiles(projectPath: string): Promise<FileScanResult> {
   const patterns = ['**/*.ts', '**/*.tsx', '**/*.js', '**/*.jsx', '**/*.vue', '**/*.svelte'];
@@ -36,6 +37,56 @@ export async function scanFiles(projectPath: string): Promise<FileScanResult> {
 
   const criticalFiles = fileInfos
     .filter((f) => f.lines > CRITICAL_LINE_THRESHOLD)
+    .sort((a, b) => b.lines - a.lines);
+
+  return {
+    totalFiles: fileInfos.length,
+    avgLinesPerFile: Math.round(totalLines / fileInfos.length),
+    criticalFiles,
+  };
+}
+
+export async function scanJavaFiles(projectPath: string): Promise<FileScanResult> {
+  const patterns = [
+    '**/*.java',
+    '**/*.kt',
+    '**/*.kts',
+  ];
+  const ignore = [
+    '**/target/**',
+    '**/build/**',
+    '**/node_modules/**',
+    '**/.gradle/**',
+    '**/bin/**',
+  ];
+
+  const files = await fg(patterns, {
+    cwd: projectPath,
+    ignore,
+    absolute: true,
+  });
+
+  if (files.length === 0) {
+    return { totalFiles: 0, avgLinesPerFile: 0, criticalFiles: [] };
+  }
+
+  const fileInfos: FileInfo[] = [];
+  let totalLines = 0;
+
+  for (const filePath of files) {
+    try {
+      const content = await fs.readFile(filePath, 'utf-8');
+      const lines = content.split('\n').length;
+      const stats = await fs.stat(filePath);
+      fileInfos.push({ path: path.relative(projectPath, filePath), lines, sizeBytes: stats.size });
+      totalLines += lines;
+    } catch {
+      // skip unreadable files
+    }
+  }
+
+  const criticalFiles = fileInfos
+    .filter((f) => f.lines > JAVA_CRITICAL_LINE_THRESHOLD)
     .sort((a, b) => b.lines - a.lines);
 
   return {

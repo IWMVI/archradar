@@ -1,4 +1,4 @@
-import { ScanResult, AnalysisResult } from '../../types/index.js';
+import { ScanResult, AnalysisResult, JavaAnalysisResult } from '../../types/index.js';
 import { topK } from '../../utils/topK.js';
 
 interface Recommendation {
@@ -77,6 +77,87 @@ export function generateRecommendations(scan: ScanResult, analysis: AnalysisResu
     recs.push({
       priority: 3,
       message: `Project has ${scan.files.totalFiles} files. Evaluate for dead code or extractable modules.`,
+    });
+  }
+
+  const top5 = topK(recs, 5, (r) => -r.priority);
+  top5.sort((a, b) => a.priority - b.priority);
+  return top5.map((r) => r.message);
+}
+
+export function generateJavaRecommendations(scan: ScanResult, analysis: JavaAnalysisResult): string[] {
+  const recs: Recommendation[] = [];
+
+  if (scan.files.criticalFiles.length > 0) {
+    recs.push({
+      priority: 1,
+      message: `${scan.files.criticalFiles.length} file(s) above 500 lines detected. Consider splitting into smaller classes.`,
+    });
+  }
+
+  if (scan.files.avgLinesPerFile > 300) {
+    recs.push({
+      priority: 2,
+      message: `High average file size (${scan.files.avgLinesPerFile} lines). Java classes should be focused and single-responsibility.`,
+    });
+  }
+
+  if (scan.dependencies.suspiciousDeps.length > 0) {
+    recs.push({
+      priority: 1,
+      message: `Overlapping dependencies detected: ${scan.dependencies.suspiciousDeps[0]}. Consolidate to avoid conflicts.`,
+    });
+  }
+
+  if (scan.dependencies.heavyDeps.length > 0) {
+    recs.push({
+      priority: 3,
+      message: `Heavy dependencies found: ${scan.dependencies.heavyDeps.join(', ')}. Evaluate if all are necessary.`,
+    });
+  }
+
+  if (!scan.structure.hasRecognizedPattern) {
+    recs.push({
+      priority: 2,
+      message: 'No recognizable package structure. Consider adopting Spring layered or DDD architecture.',
+    });
+  }
+
+  if (analysis.coupling.avgCoupling > 12) {
+    recs.push({
+      priority: 1,
+      message: `High coupling (avg ${analysis.coupling.avgCoupling} imports/class). Reduce dependencies between packages.`,
+    });
+  }
+
+  if (analysis.complexity.hotspots.length > 0) {
+    const worst = analysis.complexity.hotspots[0];
+    recs.push({
+      priority: 1,
+      message: `High cyclomatic complexity in ${worst.className}.${worst.method} (${worst.file}, score ${worst.complexity}). Extract smaller methods.`,
+    });
+  }
+
+  if (analysis.circularDeps.hasCycles) {
+    recs.push({
+      priority: 1,
+      message: `${analysis.circularDeps.cycles.length} circular package dependency(ies) detected. Restructure packages to break cycles.`,
+    });
+  }
+
+  if (analysis.modularity.issues.length > 0) {
+    for (const issue of analysis.modularity.issues) {
+      recs.push({
+        priority: 2,
+        message: issue,
+      });
+    }
+  }
+
+  if (scan.files.totalFiles > 500) {
+    recs.push({
+      priority: 3,
+      message: `Project has ${scan.files.totalFiles} classes. Consider modularizing into separate modules or microservices.`,
     });
   }
 
