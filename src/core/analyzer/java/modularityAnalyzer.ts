@@ -4,22 +4,25 @@ import fg from 'fast-glob';
 import fs from 'fs/promises';
 import path from 'path';
 import { JavaModularityResult } from '../../../types/index.js';
+import { IGNORE_PATTERNS, THRESHOLDS } from '../../../utils/validation.js';
+import { extractJavaImports, getJavaPackageName } from '../../../utils/javaUtils.js';
 
 const CONTROLLER_PATTERNS = ['controller', 'web', 'api', 'rest', 'resource'];
 const SERVICE_PATTERNS = ['service', 'business'];
-const REPOSITORY_PATTERNS = ['repository', 'persistence', 'dao', 'mapper'];
 const DOMAIN_PATTERNS = ['domain', 'model', 'entity'];
 const INFRASTRUCTURE_PATTERNS = ['infrastructure', 'persistence', 'adapter', 'repository', 'dao'];
+
+type FileType = 'controller' | 'service' | 'domain' | 'other';
 
 interface FileAnalysis {
   path: string;
   packageName: string;
-  imports: Set<string>;
+  imports: string[];
   lineCount: number;
-  fileType: 'controller' | 'service' | 'domain' | 'other';
+  fileType: FileType;
 }
 
-function detectFileType(filePath: string): FileAnalysis['fileType'] {
+function detectFileType(filePath: string): FileType {
   const normalized = filePath.toLowerCase();
   if (CONTROLLER_PATTERNS.some((p) => normalized.includes(p))) return 'controller';
   if (SERVICE_PATTERNS.some((p) => normalized.includes(p))) return 'service';
@@ -27,51 +30,20 @@ function detectFileType(filePath: string): FileAnalysis['fileType'] {
   return 'other';
 }
 
-function hasImport(imports: Set<string>, pattern: string): boolean {
-  return [...imports].some((imp) => imp.toLowerCase().includes(pattern));
-}
-
-function extractImports(tree: Parser.SyntaxNode): Set<string> {
-  const imports = new Set<string>();
-
-  function walk(node: Parser.SyntaxNode): void {
-    if (node.type === 'import_declaration') {
-      const qualifiedNode = node.childForFieldName('qualified_identifier');
-      if (qualifiedNode) {
-        imports.add(qualifiedNode.text);
-      }
-    }
-    for (const child of node.children) {
-      walk(child);
-    }
-  }
-
-  walk(tree);
-  return imports;
-}
-
-function getPackageName(tree: Parser.SyntaxNode): string {
-  function walk(node: Parser.SyntaxNode): string | null {
-    if (node.type === 'package_declaration') {
-      return node.childForFieldName('identifier')?.text || null;
-    }
-    for (const child of node.children) {
-      const result = walk(child);
-      if (result) return result;
-    }
-    return null;
-  }
-  return walk(tree) || '';
+function hasImport(imports: string[], pattern: string): boolean {
+  return imports.some((imp) => imp.toLowerCase().includes(pattern));
 }
 
 async function analyzeFiles(projectPath: string): Promise<FileAnalysis[]> {
   const parser = new Parser();
   parser.setLanguage(Java);
 
-  const patterns = ['**/*.java'];
-  const ignore = ['**/target/**', '**/build/**', '**/node_modules/**', '**/.gradle/**'];
+  const files = await fg('**/*.java', {
+    cwd: projectPath,
+    ignore: IGNORE_PATTERNS.JAVA,
+    absolute: true,
+  });
 
-  const files = await fg(patterns, { cwd: projectPath, ignore, absolute: true });
   const analyses: FileAnalysis[] = [];
 
   for (const filePath of files) {
@@ -81,59 +53,58 @@ async function analyzeFiles(projectPath: string): Promise<FileAnalysis[]> {
 
       analyses.push({
         path: path.relative(projectPath, filePath),
-        packageName: getPackageName(tree.rootNode),
-        imports: extractImports(tree.rootNode),
+        packageName: getJavaPackageName(tree.rootNode),
+        imports: extractJavaImports(tree.rootNode),
         lineCount: content.split('\n').length,
         fileType: detectFileType(filePath),
       });
-    } catch {
-      // skip unreadable files
+    } catch (error) {
+      console.warn(`Warning: Could not analyze ${filePath}: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
   return analyses;
 }
 
-function detectViolations(analyses: FileAnalysis[]): {
+interface Violations {
   controllersWithRepos: number;
   servicesWithControllers: number;
   domainsWithInfra: number;
   godClasses: number;
-} {
-  let controllersWithRepos = 0;
-  let servicesWithControllers = 0;
-  let domainsWithInfra = 0;
-  let godClasses = 0;
+}
+
+function detectViolations(analyses: FileAnalysis[]): Violations {
+  const violations: Violations = {
+    controllersWithRepos: 0,
+    servicesWithControllers: 0,
+    domainsWithInfra: 0,
+    godClasses: 0,
+  };
 
   for (const analysis of analyses) {
     const { imports, fileType, lineCount } = analysis;
 
     if (fileType === 'controller' && hasImport(imports, 'repository')) {
-      controllersWithRepos++;
+      violations.controllersWithRepos++;
     }
 
     if (fileType === 'service' && hasImport(imports, 'controller')) {
-      servicesWithControllers++;
+      violations.servicesWithControllers++;
     }
 
     if (fileType === 'domain' && INFRASTRUCTURE_PATTERNS.some((p) => hasImport(imports, p))) {
-      domainsWithInfra++;
+      violations.domainsWithInfra++;
     }
 
-    if (lineCount > 1000) {
-      godClasses++;
+    if (lineCount > THRESHOLDS.GOD_CLASS_LINES) {
+      violations.godClasses++;
     }
   }
 
-  return { controllersWithRepos, servicesWithControllers, domainsWithInfra, godClasses };
+  return violations;
 }
 
-function generateIssues(
-  violations: ReturnType<typeof detectViolations>,
-  totalControllers: number,
-  totalServices: number,
-  totalDomains: number
-): string[] {
+function generateIssues(violations: Violations, totalControllers: number, totalServices: number, totalDomains: number): string[] {
   const issues: string[] = [];
 
   if (violations.controllersWithRepos > 0) {
@@ -156,19 +127,14 @@ function generateIssues(
 
   if (violations.godClasses > 0) {
     issues.push(
-      `${violations.godClasses} class(es) exceed 1000 lines. Consider splitting into smaller, focused classes.`
+      `${violations.godClasses} class(es) exceed ${THRESHOLDS.GOD_CLASS_LINES} lines. Consider splitting into smaller, focused classes.`
     );
   }
 
   return issues;
 }
 
-function calculateScore(
-  violations: ReturnType<typeof detectViolations>,
-  totalControllers: number,
-  totalServices: number,
-  totalDomains: number
-): number {
+function calculateScore(violations: Violations, totalControllers: number, totalServices: number, totalDomains: number): number {
   let score = 100;
 
   if (totalControllers > 0) {
@@ -189,19 +155,25 @@ function calculateScore(
 }
 
 export async function analyzeJavaModularity(projectPath: string): Promise<JavaModularityResult> {
-  const analyses = await analyzeFiles(projectPath);
+  try {
+    const analyses = await analyzeFiles(projectPath);
 
-  const violations = detectViolations(analyses);
+    if (analyses.length === 0) {
+      return { modularityScore: 100, issues: [] };
+    }
 
-  const totalControllers = analyses.filter((a) => a.fileType === 'controller').length;
-  const totalServices = analyses.filter((a) => a.fileType === 'service').length;
-  const totalDomains = analyses.filter((a) => a.fileType === 'domain').length;
+    const violations = detectViolations(analyses);
 
-  const issues = generateIssues(violations, totalControllers, totalServices, totalDomains);
-  const score = calculateScore(violations, totalControllers, totalServices, totalDomains);
+    const totalControllers = analyses.filter((a) => a.fileType === 'controller').length;
+    const totalServices = analyses.filter((a) => a.fileType === 'service').length;
+    const totalDomains = analyses.filter((a) => a.fileType === 'domain').length;
 
-  return {
-    modularityScore: score,
-    issues,
-  };
+    const issues = generateIssues(violations, totalControllers, totalServices, totalDomains);
+    const score = calculateScore(violations, totalControllers, totalServices, totalDomains);
+
+    return { modularityScore: score, issues };
+  } catch (error) {
+    console.warn(`Warning: Error analyzing modularity: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    return { modularityScore: 0, issues: ['Error analyzing modularity'] };
+  }
 }

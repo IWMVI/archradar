@@ -76,6 +76,33 @@ export const JAVA_HEAVY_DEPS = [
   'log4j2',
 ];
 
+const POM_DEP_REGEX = /<dependency>\s*<groupId>([^<]+)<\/groupId>\s*<artifactId>([^<]+)<\/artifactId>\s*(?:<version>([^<]*)<\/version>\s*)?(?:<scope>([^<]*)<\/scope>)?/g;
+
+const GRADLE_DEP_REGEX = /(?:implementation|api|compile|testImplementation|runtimeOnly)\s*["']([^:"']+):([^:"']+):([^:"']+)["']/g;
+
+const SPRING_RULES: Array<[pattern: RegExp, category: DependencyCategory]> = [
+  [/cloud/i, 'cloud'],
+  [/security/i, 'security'],
+  [/data|jpa|mongodb|redis/i, 'data'],
+  [/web|mvc|servlet/i, 'web'],
+  [/test/i, 'testing'],
+  [/actuator|metrics/i, 'observability'],
+  [/batch/i, 'batch'],
+];
+
+const ORM_PATTERNS = [/hibernate/i, /jpa/i, /mybatis/i];
+
+const DEVTOOLS_PATTERNS = [/lombok/i, /mapstruct/i];
+
+async function fileExists(filePath: string): Promise<boolean> {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function scanJavaDependencies(projectPath: string): Promise<{
   totalDeps: number;
   dependencies: JavaDependencyInfo[];
@@ -98,7 +125,7 @@ export async function scanJavaDependencies(projectPath: string): Promise<{
       dependencies = parseGradleDependencies(gradleContent);
     } else if (await fileExists(buildGradleKtsPath)) {
       const gradleContent = await fs.readFile(buildGradleKtsPath, 'utf-8');
-      dependencies = parseGradleKtsDependencies(gradleContent);
+      dependencies = parseGradleDependencies(gradleContent);
     }
 
     const suspiciousDeps = detectSuspiciousDependencies(dependencies);
@@ -112,17 +139,17 @@ export async function scanJavaDependencies(projectPath: string): Promise<{
       heavyDeps,
       categories,
     };
-  } catch {
+  } catch (error) {
+    console.warn(`Warning: Error scanning dependencies: ${error instanceof Error ? error.message : 'Unknown error'}`);
     return createEmptyResult();
   }
 }
 
 function parsePomXmlDependencies(pomContent: string): JavaDependencyInfo[] {
   const dependencies: JavaDependencyInfo[] = [];
-  const depRegex = /<dependency>\s*<groupId>([^<]+)<\/groupId>\s*<artifactId>([^<]+)<\/artifactId>\s*(?:<version>([^<]+)<\/version>\s*)?(?:<scope>([^<]+)<\/scope>)?/g;
-
   let match;
-  while ((match = depRegex.exec(pomContent)) !== null) {
+
+  while ((match = POM_DEP_REGEX.exec(pomContent)) !== null) {
     const [, groupId, artifactId, version = '', scope = 'compile'] = match;
     dependencies.push({
       groupId,
@@ -138,10 +165,9 @@ function parsePomXmlDependencies(pomContent: string): JavaDependencyInfo[] {
 
 function parseGradleDependencies(content: string): JavaDependencyInfo[] {
   const dependencies: JavaDependencyInfo[] = [];
-  const implRegex = /(?:implementation|api|compile|testImplementation|runtimeOnly)\s*["']([^:"']+):([^:"']+):([^:"']+)["']/g;
-
   let match;
-  while ((match = implRegex.exec(content)) !== null) {
+
+  while ((match = GRADLE_DEP_REGEX.exec(content)) !== null) {
     const [, groupId, artifactId, version] = match;
     dependencies.push({
       groupId,
@@ -155,28 +181,11 @@ function parseGradleDependencies(content: string): JavaDependencyInfo[] {
   return dependencies;
 }
 
-function parseGradleKtsDependencies(content: string): JavaDependencyInfo[] {
-  return parseGradleDependencies(content);
-}
-
-const SPRING_RULES: Array<[pattern: RegExp, category: DependencyCategory]> = [
-  [/cloud/i, 'cloud'],
-  [/security/i, 'security'],
-  [/data|jpa|mongodb|redis/i, 'data'],
-  [/web|mvc|servlet/i, 'web'],
-  [/test/i, 'testing'],
-  [/actuator|metrics/i, 'observability'],
-  [/batch/i, 'batch'],
-];
-
-const ORM_PATTERNS = [/hibernate/i, /jpa/i, /mybatis/i];
-
-const DEVTOOLS_PATTERNS = [/lombok/i, /mapstruct/i];
-
 export function categorizeJavaDependency(groupId: string, artifactId: string): DependencyCategory {
   const key = artifactId;
-  if (JAVA_DEPENDENCY_CATEGORIES[key]) {
-    return JAVA_DEPENDENCY_CATEGORIES[key];
+  const cached = JAVA_DEPENDENCY_CATEGORIES[key];
+  if (cached) {
+    return cached;
   }
 
   if (groupId.includes('spring')) {
@@ -191,8 +200,8 @@ export function categorizeJavaDependency(groupId: string, artifactId: string): D
     return 'data';
   }
 
-  if (groupId.includes('junit') || groupId.includes('testng') || DEVTOOLS_PATTERNS.some((p) => p.test(groupId))) {
-    return groupId.includes('junit') || groupId.includes('testng') ? 'testing' : 'devtools';
+  if (groupId.includes('junit') || groupId.includes('testng')) {
+    return 'testing';
   }
 
   if (DEVTOOLS_PATTERNS.some((p) => p.test(groupId))) {
@@ -245,15 +254,6 @@ function countCategories(dependencies: JavaDependencyInfo[]): Record<DependencyC
   }
 
   return categories;
-}
-
-async function fileExists(filePath: string): Promise<boolean> {
-  try {
-    await fs.access(filePath);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 function createEmptyResult() {

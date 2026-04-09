@@ -6,7 +6,9 @@ import path from 'path';
 import { JavaComplexityResult } from '../../../types/index.js';
 import { topK } from '../../../utils/topK.js';
 
-const COMPLEXITY_THRESHOLD = 15;
+import { THRESHOLDS } from '../../../utils/validation.js';
+
+const COMPLEXITY_THRESHOLD = THRESHOLDS.COMPLEXITY.HOTSPOT;
 
 const COMPLEXITY_NODE_TYPES = new Set([
   'if_statement',

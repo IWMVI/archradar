@@ -1,6 +1,8 @@
 import fs from 'fs/promises';
 import path from 'path';
+import fg from 'fast-glob';
 import { FrameworkInfo, ProjectType, JavaFrameworkInfo } from '../../types/index.js';
+import { IGNORE_PATTERNS } from '../../utils/validation.js';
 
 interface PackageJson {
   dependencies?: Record<string, string>;
@@ -46,8 +48,6 @@ const SPRING_STARTER_PATTERNS: Array<{ pattern: string; name: string; category: 
   { pattern: 'spring-boot-devtools', name: 'Spring DevTools', category: 'devtools' },
 ];
 
-const SPRING_VERSION_PATTERN = /spring-boot-parent|spring-boot-starter-parent/i;
-
 export async function detectProjectType(projectPath: string): Promise<ProjectType> {
   const hasPomXml = await fileExists(path.join(projectPath, 'pom.xml'));
   const hasBuildGradle = await fileExists(path.join(projectPath, 'build.gradle'));
@@ -62,8 +62,14 @@ export async function detectProjectType(projectPath: string): Promise<ProjectTyp
     return 'javascript';
   }
 
-  const hasJavaFiles = await fileExists(path.join(projectPath, '**/*.java'));
-  if (hasJavaFiles) {
+  const javaFiles = await fg('**/*.java', {
+    cwd: projectPath,
+    ignore: IGNORE_PATTERNS.JAVA,
+    absolute: true,
+    onlyFiles: true,
+  });
+
+  if (javaFiles.length > 0) {
     return 'java-spring';
   }
 

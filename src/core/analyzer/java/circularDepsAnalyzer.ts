@@ -4,39 +4,13 @@ import fg from 'fast-glob';
 import fs from 'fs/promises';
 import path from 'path';
 import { JavaCircularDepsResult } from '../../../types/index.js';
+import { IGNORE_PATTERNS } from '../../../utils/validation.js';
+import { extractJavaImports, extractClassNames, extractPackageFromPath } from '../../../utils/javaUtils.js';
 
 type PackageGraph = Map<string, Set<string>>;
 
 const JAVA_PATTERNS = ['**/*.java'];
-const IGNORE_PATTERNS = ['**/target/**', '**/build/**', '**/node_modules/**', '**/.gradle/**'];
-
-function getPackageFromFile(filePath: string): string {
-  const dir = path.dirname(filePath);
-  const srcIndex = dir.indexOf('src');
-  if (srcIndex !== -1) {
-    return dir.slice(srcIndex).replace(/[/\\]src[/\\]/, '').replace(/[/\\]/g, '.');
-  }
-  return dir.replace(/[/\\]/g, '.').replace(/^\./, '');
-}
-
-function extractImports(tree: Parser.SyntaxNode): Set<string> {
-  const imports = new Set<string>();
-
-  function walk(node: Parser.SyntaxNode): void {
-    if (node.type === 'import_declaration') {
-      const qualifiedNode = node.childForFieldName('qualified_identifier');
-      if (qualifiedNode) {
-        imports.add(qualifiedNode.text);
-      }
-    }
-    for (const child of node.children) {
-      walk(child);
-    }
-  }
-
-  walk(tree);
-  return imports;
-}
+const IGNORE_PATTERNS_LIST = IGNORE_PATTERNS.JAVA;
 
 function detectCycles(graph: PackageGraph): string[][] {
   const cycles: string[][] = [];
@@ -56,8 +30,11 @@ function detectCycles(graph: PackageGraph): string[][] {
     stack.add(node);
     stackArr.push(node);
 
-    for (const neighbor of graph.get(node) ?? []) {
-      dfs(neighbor);
+    const neighbors = graph.get(node);
+    if (neighbors) {
+      for (const neighbor of neighbors) {
+        dfs(neighbor);
+      }
     }
 
     stack.delete(node);
@@ -77,65 +54,119 @@ function detectCycles(graph: PackageGraph): string[][] {
   });
 }
 
-export async function analyzeJavaCircularDeps(projectPath: string): Promise<JavaCircularDepsResult> {
+interface ParsedFile {
+  path: string;
+  packageName: string;
+  classes: string[];
+  imports: string[];
+}
+
+async function parseJavaFiles(projectPath: string): Promise<ParsedFile[]> {
   const parser = new Parser();
   parser.setLanguage(Java);
 
-  const files = await fg(JAVA_PATTERNS, { cwd: projectPath, ignore: IGNORE_PATTERNS, absolute: true });
+  const files = await fg(JAVA_PATTERNS, {
+    cwd: projectPath,
+    ignore: IGNORE_PATTERNS_LIST,
+    absolute: true,
+  });
 
-  const packageGraph: PackageGraph = new Map();
-  const fileToPackage = new Map<string, string>();
-  const fileToClass = new Map<string, string>();
+  const results: ParsedFile[] = [];
 
   for (const filePath of files) {
     try {
       const content = await fs.readFile(filePath, 'utf-8');
+      const tree = parser.parse(content);
       const relativePath = path.relative(projectPath, filePath);
 
-      const packageName = getPackageFromFile(relativePath);
-      const classMatch = content.match(/(?:public\s+)?(?:class|interface|enum)\s+(\w+)/);
-      const className = classMatch ? classMatch[1] : '';
-
-      fileToPackage.set(relativePath, packageName);
-      if (className) {
-        fileToClass.set(relativePath, className);
-      }
-
-      if (!packageGraph.has(packageName)) {
-        packageGraph.set(packageName, new Set());
-      }
-
-      const imports = extractImports(parser.parse(content).rootNode);
-
-      for (const imp of imports) {
-        for (const [otherFile, otherClass] of fileToClass.entries()) {
-          if (otherClass === imp && otherFile !== relativePath) {
-            const fromPackage = fileToPackage.get(relativePath) || '';
-            const toPackage = fileToPackage.get(otherFile) || '';
-
-            if (fromPackage !== toPackage) {
-              packageGraph.get(fromPackage)?.add(toPackage);
-            }
-          }
-        }
-      }
-    } catch {
-      // skip unreadable files
+      results.push({
+        path: relativePath,
+        packageName: extractPackageFromPath(relativePath),
+        classes: extractClassNames(content),
+        imports: extractJavaImports(tree.rootNode),
+      });
+    } catch (error) {
+      console.warn(`Warning: Could not parse ${filePath}: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
-  const packageCycles = detectCycles(packageGraph);
+  return results;
+}
 
-  const resultCycles: Array<{ packagePath: string; files: string[] }> = packageCycles.slice(0, 10).map((cycle) => ({
-    packagePath: cycle.join(' -> '),
-    files: cycle
-      .map((pkg) => [...fileToPackage.entries()].find(([, p]) => p === pkg)?.[0] || '')
-      .filter(Boolean)
-      .slice(0, 5),
-  }));
+function buildPackageGraph(files: ParsedFile[]): {
+  graph: PackageGraph;
+  fileToPackage: Map<string, string>;
+  packageToFiles: Map<string, string[]>;
+} {
+  const graph: PackageGraph = new Map();
+  const fileToPackage = new Map<string, string>();
+  const packageToFiles = new Map<string, string[]>();
 
-  return {
-    hasCycles: packageCycles.length > 0,
-    cycles: resultCycles,
-  };
+  const classToFile = new Map<string, string>();
+
+  for (const file of files) {
+    fileToPackage.set(file.path, file.packageName);
+
+    if (!packageToFiles.has(file.packageName)) {
+      packageToFiles.set(file.packageName, []);
+    }
+    packageToFiles.get(file.packageName)!.push(file.path);
+
+    for (const cls of file.classes) {
+      classToFile.set(cls, file.path);
+    }
+
+    if (!graph.has(file.packageName)) {
+      graph.set(file.packageName, new Set());
+    }
+  }
+
+  for (const file of files) {
+    for (const imp of file.imports) {
+      const className = imp.split('.').pop() || '';
+      const targetFile = classToFile.get(className);
+
+      if (targetFile && targetFile !== file.path) {
+        const fromPackage = fileToPackage.get(file.path) || '';
+        const toPackage = fileToPackage.get(targetFile) || '';
+
+        if (fromPackage !== toPackage && graph.has(fromPackage)) {
+          graph.get(fromPackage)!.add(toPackage);
+        }
+      }
+    }
+  }
+
+  return { graph, fileToPackage, packageToFiles };
+}
+
+export async function analyzeJavaCircularDeps(projectPath: string): Promise<JavaCircularDepsResult> {
+  try {
+    const files = await parseJavaFiles(projectPath);
+
+    if (files.length === 0) {
+      return { hasCycles: false, cycles: [] };
+    }
+
+    const { graph, fileToPackage, packageToFiles } = buildPackageGraph(files);
+    const packageCycles = detectCycles(graph);
+
+    const resultCycles: Array<{ packagePath: string; files: string[] }> = packageCycles
+      .slice(0, 10)
+      .map((cycle) => ({
+        packagePath: cycle.join(' -> '),
+        files: cycle
+          .map((pkg) => packageToFiles.get(pkg)?.[0] || '')
+          .filter(Boolean)
+          .slice(0, 5),
+      }));
+
+    return {
+      hasCycles: packageCycles.length > 0,
+      cycles: resultCycles,
+    };
+  } catch (error) {
+    console.warn(`Warning: Error analyzing circular dependencies: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    return { hasCycles: false, cycles: [] };
+  }
 }

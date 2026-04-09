@@ -8,6 +8,7 @@ import * as Scanner from "../src/core/scanner/index.js";
 import * as Analyzer from "../src/core/analyzer/index.js";
 import * as ScoreEngine from "../src/core/scoring/index.js";
 import * as Reporter from "../src/core/report/index.js";
+import { validateProjectPath, isDirectory, isReadable, ValidationError } from "../src/utils/validation.js";
 
 const program = new Command();
 
@@ -24,10 +25,31 @@ program
     "Analyze the architectural health of a project (JavaScript/TypeScript or Java/Spring Boot)",
   )
   .action(async (projectPath?: string) => {
-    const targetPath = path.resolve(projectPath ?? ".");
+    let targetPath: string;
+
+    try {
+      targetPath = validateProjectPath(projectPath ?? ".");
+    } catch (error) {
+      console.error(chalk.red("Error: Invalid project path"));
+      if (error instanceof ValidationError) {
+        console.error(chalk.yellow(error.message));
+      }
+      process.exit(1);
+    }
+
     const spinner = ora("Scanning project...").start();
 
     try {
+      const isDir = await isDirectory(targetPath);
+      if (!isDir) {
+        throw new Error(`Path is not a directory: ${targetPath}`);
+      }
+
+      const canRead = await isReadable(targetPath);
+      if (!canRead) {
+        throw new Error(`Cannot read directory: ${targetPath}`);
+      }
+
       spinner.text = "Detecting project type...";
       const projectType = await Scanner.detectProjectType(targetPath);
 
@@ -47,18 +69,29 @@ program
       spinner.succeed("Analysis complete");
 
       Reporter.display(scanResult, analysisResult, scoreResult, projectType);
-    } catch (err: unknown) {
+    } catch (error) {
       spinner.fail("Analysis failed");
-      if (err instanceof Error) {
-        console.error(err.message);
+
+      if (error instanceof ValidationError) {
+        console.error(chalk.red("Validation Error:"));
+        console.error(chalk.yellow(error.message));
+      } else if (error instanceof Error) {
+        console.error(chalk.red("Error:"));
+        console.error(chalk.yellow(error.message));
+
+        if (process.env.DEBUG) {
+          console.error(chalk.gray(error.stack || ""));
+        }
+      } else {
+        console.error(chalk.red("Unknown error occurred"));
       }
+
       process.exit(1);
     }
   });
 
 program.parse(process.argv);
 
-// default: run scan on cwd if no command given
 if (process.argv.length === 2) {
   program.parse(["node", "archradar", "scan"]);
 }
