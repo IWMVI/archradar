@@ -15,7 +15,7 @@ function scoreCriticalFiles(criticalCount: number, totalFiles: number): number {
   const ratio = criticalCount / totalFiles;
   const r = THRESHOLDS.RATIO;
   if (ratio === r.CRITICAL_EXCELLENT) return THRESHOLDS.SCORE.EXCELLENT;
-  if (ratio <= r.CRITICAL_GOOD) return 80;
+  if (ratio <= r.CRITICAL_GOOD) return THRESHOLDS.SCORE.GOOD;
   if (ratio <= r.CRITICAL_MODERATE) return THRESHOLDS.SCORE.MODERATE;
   if (ratio <= r.CRITICAL_WARNING) return THRESHOLDS.SCORE.WARNING;
   return THRESHOLDS.SCORE.CRITICAL;
