@@ -25,21 +25,23 @@ export async function scanDependencies(projectPath: string): Promise<DependencyS
     const depKeys = Object.keys(allDeps);
 
     const suspiciousDeps: string[] = [];
-    for (const [group, libs] of Object.entries(OVERLAP_GROUPS)) {
+    for (const [, libs] of Object.entries(OVERLAP_GROUPS)) {
       const found = depKeys.filter((d) => libs.includes(d));
       if (found.length > 1) {
-        suspiciousDeps.push(`Múltiplas libs de ${group}: ${found.join(', ')}`);
+        const groupName = Object.entries(OVERLAP_GROUPS).find(([, l]) => l === libs)?.[0] || 'unknown';
+        suspiciousDeps.push(`Múltiplas libs de ${groupName}: ${found.join(', ')}`);
       }
     }
 
-    const heavyDeps = depKeys.filter((d) => HEAVY_DEPS.includes(d));
+    const heavyDepsList = depKeys.filter((d) => HEAVY_DEPS.includes(d));
 
     return {
       totalDeps: depKeys.length,
       suspiciousDeps,
-      heavyDeps,
+      heavyDeps: heavyDepsList,
     };
-  } catch {
+  } catch (error) {
+    console.warn(`Warning: Could not scan dependencies: ${error instanceof Error ? error.message : 'Unknown error'}`);
     return { totalDeps: 0, suspiciousDeps: [], heavyDeps: [] };
   }
 }

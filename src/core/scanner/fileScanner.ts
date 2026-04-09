@@ -2,17 +2,14 @@ import fg from 'fast-glob';
 import fs from 'fs/promises';
 import path from 'path';
 import { FileScanResult, FileInfo } from '../../types/index.js';
-
-const CRITICAL_LINE_THRESHOLD = 300;
-const JAVA_CRITICAL_LINE_THRESHOLD = 500;
+import { IGNORE_PATTERNS, THRESHOLDS } from '../../utils/validation.js';
 
 export async function scanFiles(projectPath: string): Promise<FileScanResult> {
   const patterns = ['**/*.ts', '**/*.tsx', '**/*.js', '**/*.jsx', '**/*.vue', '**/*.svelte'];
-  const ignore = ['**/node_modules/**', '**/dist/**', '**/.next/**', '**/build/**', '**/.nuxt/**'];
 
   const files = await fg(patterns, {
     cwd: projectPath,
-    ignore,
+    ignore: IGNORE_PATTERNS.JS,
     absolute: true,
   });
 
@@ -30,13 +27,13 @@ export async function scanFiles(projectPath: string): Promise<FileScanResult> {
       const stats = await fs.stat(filePath);
       fileInfos.push({ path: path.relative(projectPath, filePath), lines, sizeBytes: stats.size });
       totalLines += lines;
-    } catch {
-      // skip unreadable files
+    } catch (error) {
+      console.warn(`Warning: Could not read ${filePath}: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
   const criticalFiles = fileInfos
-    .filter((f) => f.lines > CRITICAL_LINE_THRESHOLD)
+    .filter((f) => f.lines > THRESHOLDS.FILE_SIZE.JS_CRITICAL)
     .sort((a, b) => b.lines - a.lines);
 
   return {
@@ -47,22 +44,11 @@ export async function scanFiles(projectPath: string): Promise<FileScanResult> {
 }
 
 export async function scanJavaFiles(projectPath: string): Promise<FileScanResult> {
-  const patterns = [
-    '**/*.java',
-    '**/*.kt',
-    '**/*.kts',
-  ];
-  const ignore = [
-    '**/target/**',
-    '**/build/**',
-    '**/node_modules/**',
-    '**/.gradle/**',
-    '**/bin/**',
-  ];
+  const patterns = ['**/*.java', '**/*.kt', '**/*.kts'];
 
   const files = await fg(patterns, {
     cwd: projectPath,
-    ignore,
+    ignore: IGNORE_PATTERNS.JAVA,
     absolute: true,
   });
 
@@ -80,13 +66,13 @@ export async function scanJavaFiles(projectPath: string): Promise<FileScanResult
       const stats = await fs.stat(filePath);
       fileInfos.push({ path: path.relative(projectPath, filePath), lines, sizeBytes: stats.size });
       totalLines += lines;
-    } catch {
-      // skip unreadable files
+    } catch (error) {
+      console.warn(`Warning: Could not read ${filePath}: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
   const criticalFiles = fileInfos
-    .filter((f) => f.lines > JAVA_CRITICAL_LINE_THRESHOLD)
+    .filter((f) => f.lines > THRESHOLDS.FILE_SIZE.JAVA_CRITICAL)
     .sort((a, b) => b.lines - a.lines);
 
   return {

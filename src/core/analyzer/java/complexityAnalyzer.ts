@@ -4,11 +4,8 @@ import fg from 'fast-glob';
 import fs from 'fs/promises';
 import path from 'path';
 import { JavaComplexityResult } from '../../../types/index.js';
+import { IGNORE_PATTERNS, THRESHOLDS } from '../../../utils/validation.js';
 import { topK } from '../../../utils/topK.js';
-
-import { THRESHOLDS } from '../../../utils/validation.js';
-
-const COMPLEXITY_THRESHOLD = THRESHOLDS.COMPLEXITY.HOTSPOT;
 
 const COMPLEXITY_NODE_TYPES = new Set([
   'if_statement',
@@ -27,6 +24,9 @@ const COMPLEXITY_NODE_TYPES = new Set([
   'binary_expression',
   'block',
 ]);
+
+const parser = new Parser();
+parser.setLanguage(Java);
 
 function countComplexity(node: Parser.SyntaxNode): number {
   let count = 1;
@@ -69,15 +69,9 @@ function getClassName(node: Parser.SyntaxNode): string {
 }
 
 export async function analyzeJavaComplexity(projectPath: string): Promise<JavaComplexityResult> {
-  const parser = new Parser();
-  parser.setLanguage(Java);
-
-  const patterns = ['**/*.java'];
-  const ignore = ['**/target/**', '**/build/**', '**/node_modules/**', '**/.gradle/**'];
-
-  const files = await fg(patterns, {
+  const files = await fg('**/*.java', {
     cwd: projectPath,
-    ignore,
+    ignore: IGNORE_PATTERNS.JAVA,
     absolute: true,
   });
 
@@ -102,7 +96,7 @@ export async function analyzeJavaComplexity(projectPath: string): Promise<JavaCo
             totalComplexity += complexity;
             methodCount++;
 
-            if (complexity >= COMPLEXITY_THRESHOLD) {
+            if (complexity >= THRESHOLDS.COMPLEXITY.HOTSPOT) {
               hotspots.push({
                 file: relativePath,
                 className,
@@ -119,8 +113,8 @@ export async function analyzeJavaComplexity(projectPath: string): Promise<JavaCo
       }
 
       analyzeNode(tree.rootNode);
-    } catch {
-      // skip unreadable files
+    } catch (error) {
+      console.warn(`Warning: Could not analyze ${filePath}: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 

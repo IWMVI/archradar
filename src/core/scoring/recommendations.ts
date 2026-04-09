@@ -1,5 +1,6 @@
 import { ScanResult, AnalysisResult, JavaAnalysisResult } from '../../types/index.js';
 import { topK } from '../../utils/topK.js';
+import { THRESHOLDS } from '../../utils/validation.js';
 
 interface Recommendation {
   priority: number;
@@ -12,11 +13,11 @@ export function generateRecommendations(scan: ScanResult, analysis: AnalysisResu
   if (scan.files.criticalFiles.length > 0) {
     recs.push({
       priority: 1,
-      message: `${scan.files.criticalFiles.length} file(s) above 300 lines detected. Consider splitting into smaller modules.`,
+      message: `${scan.files.criticalFiles.length} file(s) above ${THRESHOLDS.FILE_SIZE.JS_CRITICAL} lines detected. Consider splitting into smaller modules.`,
     });
   }
 
-  if (scan.files.avgLinesPerFile > 200) {
+  if (scan.files.avgLinesPerFile > THRESHOLDS.FILE_SIZE.JS_AVG_TARGET) {
     recs.push({
       priority: 2,
       message: `High average file size (${scan.files.avgLinesPerFile} lines). Prefer smaller, focused files.`,
@@ -44,7 +45,7 @@ export function generateRecommendations(scan: ScanResult, analysis: AnalysisResu
     });
   }
 
-  if (analysis.coupling.avgCoupling > 15) {
+  if (analysis.coupling.avgCoupling > THRESHOLDS.COUPLING.JS_CRITICAL_HIGH) {
     recs.push({
       priority: 1,
       message: `High coupling (avg ${analysis.coupling.avgCoupling} imports/file). Reduce inter-module dependencies.`,
@@ -73,7 +74,7 @@ export function generateRecommendations(scan: ScanResult, analysis: AnalysisResu
     });
   }
 
-  if (scan.files.totalFiles > 300) {
+  if (scan.files.totalFiles > THRESHOLDS.PROJECT_SIZE.JS_WARNING) {
     recs.push({
       priority: 3,
       message: `Project has ${scan.files.totalFiles} files. Evaluate for dead code or extractable modules.`,
@@ -91,11 +92,11 @@ export function generateJavaRecommendations(scan: ScanResult, analysis: JavaAnal
   if (scan.files.criticalFiles.length > 0) {
     recs.push({
       priority: 1,
-      message: `${scan.files.criticalFiles.length} file(s) above 500 lines detected. Consider splitting into smaller classes.`,
+      message: `${scan.files.criticalFiles.length} file(s) above ${THRESHOLDS.FILE_SIZE.JAVA_CRITICAL} lines detected. Consider splitting into smaller classes.`,
     });
   }
 
-  if (scan.files.avgLinesPerFile > 300) {
+  if (scan.files.avgLinesPerFile > THRESHOLDS.FILE_SIZE.JAVA_AVG_TARGET) {
     recs.push({
       priority: 2,
       message: `High average file size (${scan.files.avgLinesPerFile} lines). Java classes should be focused and single-responsibility.`,
@@ -123,7 +124,7 @@ export function generateJavaRecommendations(scan: ScanResult, analysis: JavaAnal
     });
   }
 
-  if (analysis.coupling.avgCoupling > 12) {
+  if (analysis.coupling.avgCoupling > THRESHOLDS.COUPLING.JAVA_CRITICAL_HIGH) {
     recs.push({
       priority: 1,
       message: `High coupling (avg ${analysis.coupling.avgCoupling} imports/class). Reduce dependencies between packages.`,
@@ -154,7 +155,7 @@ export function generateJavaRecommendations(scan: ScanResult, analysis: JavaAnal
     }
   }
 
-  if (scan.files.totalFiles > 500) {
+  if (scan.files.totalFiles > THRESHOLDS.PROJECT_SIZE.JAVA_WARNING) {
     recs.push({
       priority: 3,
       message: `Project has ${scan.files.totalFiles} classes. Consider modularizing into separate modules or microservices.`,

@@ -1,49 +1,54 @@
 import { ScanResult, JavaAnalysisResult, HealthScore, Grade, ScoreBreakdown } from '../../types/index.js';
+import { THRESHOLDS } from '../../utils/validation.js';
 
 function scoreFileSize(avgLines: number): number {
-  if (avgLines <= 150) return 100;
-  if (avgLines <= 250) return 80;
-  if (avgLines <= 400) return 60;
-  if (avgLines <= 600) return 40;
-  return 20;
+  const t = THRESHOLDS.FILE_SIZE;
+  if (avgLines <= t.AVG_EXCELLENT) return THRESHOLDS.SCORE.EXCELLENT;
+  if (avgLines <= t.AVG_GOOD) return THRESHOLDS.SCORE.GOOD;
+  if (avgLines <= t.AVG_MODERATE) return THRESHOLDS.SCORE.MODERATE;
+  if (avgLines <= t.AVG_WARNING) return THRESHOLDS.SCORE.WARNING;
+  return THRESHOLDS.SCORE.CRITICAL;
 }
 
 function scoreCriticalFiles(criticalCount: number, totalFiles: number): number {
-  if (totalFiles === 0) return 100;
+  if (totalFiles === 0) return THRESHOLDS.SCORE.EXCELLENT;
   const ratio = criticalCount / totalFiles;
-  if (ratio === 0) return 100;
-  if (ratio <= 0.03) return 80;
-  if (ratio <= 0.10) return 60;
-  if (ratio <= 0.20) return 40;
-  return 20;
+  const r = THRESHOLDS.RATIO;
+  if (ratio === r.CRITICAL_EXCELLENT) return THRESHOLDS.SCORE.EXCELLENT;
+  if (ratio <= r.CRITICAL_GOOD) return 80;
+  if (ratio <= r.CRITICAL_MODERATE) return THRESHOLDS.SCORE.MODERATE;
+  if (ratio <= r.CRITICAL_WARNING) return THRESHOLDS.SCORE.WARNING;
+  return THRESHOLDS.SCORE.CRITICAL;
 }
 
 function scoreStructure(hasRecognizedPattern: boolean, folderCount: number): number {
-  if (hasRecognizedPattern) return folderCount >= 4 ? 100 : 80;
-  return folderCount >= 3 ? 40 : 20;
+  if (hasRecognizedPattern) return folderCount >= 4 ? THRESHOLDS.SCORE.EXCELLENT : 80;
+  return folderCount >= 3 ? 40 : THRESHOLDS.SCORE.CRITICAL;
 }
 
 function scoreDependencies(suspicious: number, heavy: number): number {
-  let score = 100;
+  let score = THRESHOLDS.SCORE.EXCELLENT;
   score -= suspicious * 15;
   score -= Math.min(30, heavy * 3);
   return Math.max(0, score);
 }
 
 function scoreCoupling(avgCoupling: number): number {
-  if (avgCoupling <= 8) return 100;
-  if (avgCoupling <= 12) return 80;
-  if (avgCoupling <= 18) return 60;
-  if (avgCoupling <= 25) return 40;
-  return 20;
+  const t = THRESHOLDS.COUPLING;
+  if (avgCoupling <= 8) return THRESHOLDS.SCORE.EXCELLENT;
+  if (avgCoupling <= t.JAVA_CRITICAL_HIGH) return THRESHOLDS.SCORE.GOOD;
+  if (avgCoupling <= t.JAVA_CRITICAL_VERY_HIGH) return THRESHOLDS.SCORE.MODERATE;
+  if (avgCoupling <= t.JAVA_CRITICAL_EXTREME) return THRESHOLDS.SCORE.WARNING;
+  return THRESHOLDS.SCORE.CRITICAL;
 }
 
 function scoreComplexity(avgComplexity: number, hotspotsCount: number): number {
-  let score = 100;
-  if (avgComplexity > 15) score -= 40;
-  else if (avgComplexity > 10) score -= 25;
-  else if (avgComplexity > 7) score -= 15;
-  else if (avgComplexity > 5) score -= 10;
+  const t = THRESHOLDS.COMPLEXITY;
+  let score = THRESHOLDS.SCORE.EXCELLENT;
+  if (avgComplexity > t.CRITICAL_HIGH) score -= 40;
+  else if (avgComplexity > t.CRITICAL_MEDIUM) score -= 25;
+  else if (avgComplexity > t.CRITICAL_LOW) score -= 15;
+  else if (avgComplexity > t.CRITICAL_VERY_LOW) score -= 10;
   score -= Math.min(35, hotspotsCount * 4);
   return Math.max(0, score);
 }
