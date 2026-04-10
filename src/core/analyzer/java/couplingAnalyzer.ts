@@ -19,6 +19,9 @@ const FILE_TYPE_PATTERNS: Array<[pattern: RegExp, type: string]> = [
   [/[/\\]exception/i, 'Exception'],
 ];
 
+const parser = new Parser();
+parser.setLanguage(Java);
+
 function detectFileType(filePath: string): string {
   for (const [pattern, type] of FILE_TYPE_PATTERNS) {
     if (pattern.test(filePath)) {
@@ -29,9 +32,6 @@ function detectFileType(filePath: string): string {
 }
 
 export async function analyzeJavaCoupling(projectPath: string): Promise<JavaCouplingResult> {
-  const parser = new Parser();
-  parser.setLanguage(Java);
-
   const files = await fg('**/*.java', {
     cwd: projectPath,
     ignore: IGNORE_PATTERNS.JAVA,

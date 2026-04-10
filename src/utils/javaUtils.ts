@@ -1,4 +1,5 @@
 import Parser from 'tree-sitter';
+import path from 'path';
 
 export function extractJavaImports(tree: Parser.SyntaxNode): string[] {
   const imports: string[] = [];
@@ -55,5 +56,3 @@ export function extractPackageFromPath(filePath: string): string {
 
   return dir.replace(/[/\\]/g, '.').replace(/^\./, '');
 }
-
-import path from 'path';

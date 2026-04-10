@@ -22,6 +22,9 @@ interface FileAnalysis {
   fileType: FileType;
 }
 
+const parser = new Parser();
+parser.setLanguage(Java);
+
 function detectFileType(filePath: string): FileType {
   const normalized = filePath.toLowerCase();
   if (CONTROLLER_PATTERNS.some((p) => normalized.includes(p))) return 'controller';
@@ -35,9 +38,6 @@ function hasImport(imports: string[], pattern: string): boolean {
 }
 
 async function analyzeFiles(projectPath: string): Promise<FileAnalysis[]> {
-  const parser = new Parser();
-  parser.setLanguage(Java);
-
   const files = await fg('**/*.java', {
     cwd: projectPath,
     ignore: IGNORE_PATTERNS.JAVA,

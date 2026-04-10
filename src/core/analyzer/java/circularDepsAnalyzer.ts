@@ -12,6 +12,9 @@ type PackageGraph = Map<string, Set<string>>;
 const JAVA_PATTERNS = ['**/*.java'];
 const IGNORE_PATTERNS_LIST = IGNORE_PATTERNS.JAVA;
 
+const parser = new Parser();
+parser.setLanguage(Java);
+
 function detectCycles(graph: PackageGraph): string[][] {
   const cycles: string[][] = [];
   const visited = new Set<string>();
@@ -62,9 +65,6 @@ interface ParsedFile {
 }
 
 async function parseJavaFiles(projectPath: string): Promise<ParsedFile[]> {
-  const parser = new Parser();
-  parser.setLanguage(Java);
-
   const files = await fg(JAVA_PATTERNS, {
     cwd: projectPath,
     ignore: IGNORE_PATTERNS_LIST,

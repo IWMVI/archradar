@@ -48,6 +48,11 @@ const SPRING_STARTER_PATTERNS: Array<{ pattern: string; name: string; category: 
   { pattern: 'spring-boot-devtools', name: 'Spring DevTools', category: 'devtools' },
 ];
 
+const COMPILED_SPRING_PATTERNS = SPRING_STARTER_PATTERNS.map(({ pattern }) => {
+  const escapedPattern = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`<artifactId>${escapedPattern}</artifactId>`);
+});
+
 export async function detectProjectType(projectPath: string): Promise<ProjectType> {
   const hasPomXml = await fileExists(path.join(projectPath, 'pom.xml'));
   const hasBuildGradle = await fileExists(path.join(projectPath, 'build.gradle'));
@@ -212,10 +217,9 @@ function createUnknownJavaFrameworkInfo(): JavaFrameworkInfo {
 function parseSpringDependencies(pomContent: string): string[] {
   const springDeps: string[] = [];
   
-  for (const { pattern } of SPRING_STARTER_PATTERNS) {
-    const escapedPattern = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    if (new RegExp(`<artifactId>${escapedPattern}</artifactId>`).test(pomContent)) {
-      springDeps.push(pattern);
+  for (let i = 0; i < SPRING_STARTER_PATTERNS.length; i++) {
+    if (COMPILED_SPRING_PATTERNS[i].test(pomContent)) {
+      springDeps.push(SPRING_STARTER_PATTERNS[i].pattern);
     }
   }
   
